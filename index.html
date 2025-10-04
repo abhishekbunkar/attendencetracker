@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Attendance and Payment Tracker (Saved)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the container and canvas */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e5e7eb; /* Gray-100 */
+        }
+        .canvas-container {
+            overflow-x: auto;
+            position: relative;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+        #attendanceCanvas {
+            display: block;
+            touch-action: pan-x pan-y; /* Improve touch interaction */
+        }
+        .canvas-input {
+            position: absolute;
+            border: 1px solid #10b981; /* Emerald-500 */
+            padding: 4px;
+            text-align: center;
+            font-size: 14px;
+            box-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+            outline: none;
+            z-index: 10;
+        }
+        /* Style for the table in payment history */
+        #paymentHistoryTable th, #paymentHistoryTable td {
+            padding: 0.75rem;
+            text-align: left;
+        }
+        #paymentHistoryTable th {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+        }
+        
+        /* CSS rules to hide control elements specifically during printing */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            body {
+                background-color: white !important; /* White background for printing */
+                padding: 0;
+            }
+            .max-w-7xl.mx-auto {
+                max-width: none !important; /* Allow content to take full width */
+                margin: 0 !important;
+            }
+            /* Ensure canvas container remains visible and doesn't scroll excessively */
+            .canvas-container {
+                overflow-x: visible; 
+                box-shadow: none;
+                border: 1px solid #000;
+            }
+        }
+        
+        .tab-button.active {
+            border-bottom-width: 3px;
+            border-color: #10b981; /* Emerald-500 */
+            color: #10b981;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-extrabold text-center mb-6 text-gray-800">उपस्थिति और भुगतान ट्रैकर (सहेजा गया)</h1>
+        
+        <!-- Loading and Error Message Area -->
+        <div id="loadingMessage" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-2xl flex flex-col items-center">
+                <svg class="animate-spin h-8 w-8 text-indigo-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-gray-700 font-semibold">डेटा लोड हो रहा है...</p>
+            </div>
+        </div>
+
+        <!-- NEW: TAB NAVIGATION HEADER -->
+        <div class="mb-6 border-b border-gray-200 no-print">
+            <nav class="flex space-x-4 overflow-x-auto">
+                <button id="tab-attendance" onclick="showSection('attendance')" class="tab-button active flex-shrink-0 py-3 px-4 text-gray-600 hover:text-emerald-500 transition duration-150 focus:outline-none" data-section="attendance">
+                    उपस्थिति पत्रक (Attendance Sheet)
+                </button>
+                <button id="tab-payment" onclick="showSection('payment')" class="tab-button flex-shrink-0 py-3 px-4 text-gray-600 hover:text-emerald-500 transition duration-150 focus:outline-none" data-section="payment">
+                    भुगतान प्रबंधन (Payment Management)
+                </button>
+                <button id="tab-history" onclick="showSection('history')" class="tab-button flex-shrink-0 py-3 px-4 text-gray-600 hover:text-emerald-500 transition duration-150 focus:outline-none" data-section="history">
+                    ऐतिहासिक रिपोर्ट (Historical Reports)
+                </button>
+            </nav>
+        </div>
+        <!-- END TAB NAVIGATION HEADER -->
+
+
+        <!-- ATTENDANCE SPECIFIC CONTROLS (Displayed only when 'attendance' tab is active) -->
+
+        <!-- Date and Action Controls (तारीख और कार्यवाही नियंत्रण) -->
+        <div id="controls-top" class="attendance-controls bg-white p-5 rounded-lg shadow-md mb-4 flex flex-col sm:flex-row items-center justify-center gap-4 no-print">
+            <div class="flex flex-col sm:flex-row items-center gap-3">
+                <label for="startDate" class="font-medium text-gray-700">शुरुआत की तारीख (Start Date):</label>
+                <input type="date" id="startDate" class="p-2 border border-gray-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500 transition duration-150">
+            </div>
+            <div class="flex flex-col sm:flex-row items-center gap-3">
+                <label for="endDate" class="font-medium text-gray-700">अंतिम तारीख (End Date):</label>
+                <input type="date" id="endDate" class="p-2 border border-gray-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500 transition duration-150">
+            </div>
+            <button onclick="handleSheetGeneration()" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                सहेजें और शीट बनाएं (Save & Generate Sheet)
+            </button>
+        </div>
+
+        <!-- Employee Management Controls (कर्मचारी प्रबंधन नियंत्रण) -->
+        <div id="controls-employee" class="attendance-controls bg-white p-5 rounded-lg shadow-md mb-6 flex flex-col sm:flex-row items-center justify-center gap-4 no-print">
+            
+            <input type="text" id="newEmployeeName" placeholder="नये कर्मचारी का नाम" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+            
+            <!-- Input for Daily Cost -->
+            <input type="number" id="newEmployeeCost" placeholder="दैनिक लागत (₹)" value="1000" min="0" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 transition duration-150 w-32">
+            
+            <button onclick="addEmployee()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                कर्मचारी जोड़ें (Add Employee)
+            </button>
+            
+            <select id="employeeSelectToRemove" class="p-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500 transition duration-150">
+                <option value="" disabled selected>हटाने के लिए कर्मचारी चुनें</option>
+            </select>
+
+            <button onclick="removeEmployeeBySelect()" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                कर्मचारी हटाएँ (Remove Employee)
+            </button>
+        </div>
+        
+        <!-- END ATTENDANCE SPECIFIC CONTROLS -->
+
+
+        <!-- 1. ATTENDANCE SHEET SECTION (Default Active) -->
+        <div id="attendanceSection" class="tab-content">
+            <!-- Report Title Area with Date Range -->
+            <div id="report-title-area" class="text-center mb-4 p-3 bg-indigo-100 text-indigo-800 rounded-lg shadow-inner">
+                <h2 class="text-2xl font-bold">उपस्थिति पत्रक (Attendance Sheet)</h2>
+                <p class="text-lg">वर्तमान रिपोर्ट सीमा: <span id="currentRangeDisplay" class="font-semibold">N/A</span></p>
+            </div>
+
+            <!-- Canvas Container -->
+            <div class="canvas-container">
+                <canvas id="attendanceCanvas"></canvas>
+                <!-- Temporary input for editing Cost -->
+                <input type="number" id="tempInput" class="canvas-input hidden" onblur="handleInputBlur(this)" onkeydown="handleInputKeydown(event, this)">
+            </div>
+
+            <!-- Legend for Attendance Marks -->
+            <div class="mt-6 p-4 bg-gray-100 rounded-lg text-sm text-gray-700 no-print">
+                <p class="font-bold mb-2">उपस्थिति कोड (Attendance Codes):</p>
+                <ul class="flex flex-wrap gap-4">
+                    <li><span class="font-semibold text-emerald-600">P</span> = उपस्थित (Present - 1.0 Day)</li>
+                    <li><span class="font-semibold text-yellow-600">H</span> = आधा दिन (Half Day - 0.5 Day)</li>
+                    <li><span class="font-semibold text-red-600">A</span> = अनुपस्थित (Absent - 0 Days)</li>
+                    <li><span class="font-semibold text-pink-600">L</span> = छुट्टी (Leave - 0 Days)</li>
+                    <li><span class="font-semibold text-blue-600">X</span> = सिस्टम छुट्टी (System Holiday - तारीख पर क्लिक करके सेट करें)</li>
+                </ul>
+            </div>
+            
+             <!-- PRINT BUTTON SECTION -->
+            <div id="print-section" class="flex justify-center mt-6 no-print">
+                <button onclick="printReport()" class="bg-gray-800 hover:bg-gray-900 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition duration-300 ease-in-out transform hover:scale-105 flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m0 0v2a2 2 0 002 2h2a2 2 0 002-2v-2m0 0h-4"></path></svg>
+                    वर्तमान पत्रक प्रिंट करें (Print Current Sheet)
+                </button>
+            </div>
+        </div>
+        <!-- END ATTENDANCE SHEET SECTION -->
+
+
+        <!-- 2. PAYMENT MANAGEMENT SECTION -->
+        <div id="paymentSection" class="tab-content hidden">
+            <div id="paymentControls" class="bg-white p-5 rounded-lg shadow-xl mt-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b-2 border-indigo-500 pb-2">भुगतान प्रबंधन और इतिहास</h2>
+                
+                <!-- Payment Recording Form (no-print) -->
+                <div id="payment-form" class="flex flex-wrap items-end gap-4 mb-6 p-4 border border-indigo-200 rounded-lg bg-indigo-50 no-print">
+                    <div class="flex flex-col">
+                        <label for="paymentEmployeeSelect" class="font-medium text-gray-700 text-sm">कर्मचारी चुनें (Select Employee):</label>
+                        <select id="paymentEmployeeSelect" class="p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"></select>
+                    </div>
+                    
+                    <div class="flex flex-col">
+                        <label for="paymentDate" class="font-medium text-gray-700 text-sm">भुगतान की तारीख (Payment Date):</label>
+                        <input type="date" id="paymentDate" class="p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                    </div>
+                    
+                    <div class="flex flex-col">
+                        <label for="paymentAmount" class="font-medium text-gray-700 text-sm">राशि (Amount):</label>
+                        <input type="number" id="paymentAmount" placeholder="₹ 0" class="p-2 border rounded-md w-32 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                    </div>
+
+                    <div class="flex flex-col">
+                        <label for="paymentMode" class="font-medium text-gray-700 text-sm">माध्यम (Mode):</label>
+                        <select id="paymentMode" class="p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                            <option value="Cash">नकद (Cash)</option>
+                            <option value="Online">ऑनलाइन (Online)</option>
+                        </select>
+                    </div>
+
+                    <button onclick="recordPayment()" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition duration-150 ease-in-out transform hover:scale-105">
+                        भुगतान दर्ज करें (Record Payment)
+                    </button>
+                </div>
+
+                <!-- Payment History Table -->
+                <h3 class="text-xl font-bold text-gray-800 mb-4 border-b border-indigo-300 pb-2">हाल के भुगतान (Recent Payments)</h3>
+                
+                <!-- Employee Filter for Payment History (no-print) -->
+                <div class="flex justify-start mb-4 no-print">
+                    <label for="paymentEmployeeFilter" class="text-sm font-medium text-gray-700 mr-2 self-center">कर्मचारी द्वारा फ़िल्टर करें (Filter by Employee):</label>
+                    <select id="paymentEmployeeFilter" onchange="drawSheet()" class="p-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"></select>
+                </div>
+                
+                <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table id="paymentHistoryTable" class="min-w-full divide-y divide-gray-200">
+                        <!-- Table content will be generated by JavaScript -->
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- END PAYMENT MANAGEMENT SECTION -->
+        
+        <!-- 3. HISTORICAL REPORTS SECTION -->
+        <div id="historySection" class="tab-content hidden">
+            <div id="historicalReportsSection" class="bg-white p-5 rounded-lg shadow-xl mt-6 no-print">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b-2 border-emerald-500 pb-2">ऐतिहासिक रिपोर्ट (Historical Reports)</h2>
+                <div id="historyList" class="space-y-3">
+                    <!-- History records will be rendered here -->
+                    <p id="noHistoryMessage" class="text-gray-500 italic">अभी तक कोई ऐतिहासिक रिपोर्ट सहेजी नहीं गई है।</p>
+                </div>
+            </div>
+        </div>
+        <!-- END HISTORICAL REPORTS SECTION -->
+
+    </div>
+
+    <script type="module">
+        // --- Firebase Imports and Setup ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase and App State
+        let db, auth, userId;
+        let firebaseInitialized = false;
+        
+        // Use provided global variables - THIS SECTION IS VITAL FOR CORRECT ACCESS
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Firestore paths
+        const CONFIG_DOC_PATH = `artifacts/${appId}/public/data/sheetConfig/current`;
+        const EMPLOYEES_COL_PATH = `artifacts/${appId}/public/data/employees`;
+        const SHEET_HISTORY_COL_PATH = `artifacts/${appId}/public/data/sheetHistoryRecords`; 
+
+        // --- Canvas and Configuration Variables ---
+        const canvas = document.getElementById('attendanceCanvas');
+        const ctx = canvas.getContext('2d');
+        const tempInput = document.getElementById('tempInput');
+
+        const ROW_HEIGHT = 40;
+        const HEADER_ROW_HEIGHT = 20; 
+        const TOTAL_HEADER_HEIGHT = 2 * HEADER_ROW_HEIGHT; 
+        const FONT = '14px Inter, Arial';
+        const HEADER_BG = '#10b981'; 
+        const HEADER_TEXT_COLOR = 'white';
+        const WEEKEND_COLOR = '#f3f4f6'; 
+        
+        const ACTIVE_COLOR = '#d1fae5'; 
+        const HALF_DAY_COLOR = '#fffbe3'; 
+        const LEAVE_COLOR = '#fce7f3'; 
+        const SYSTEM_HOLIDAY_COLOR = '#bfdbfe'; 
+        
+        const DAY_ABBREVIATIONS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; 
+
+        const FIXED_COLUMNS = [
+            { id: 'sn', label: 'क्र. सं.', width: 60, type: 'fixed' },
+            { id: 'name', label: 'नाम', width: 150, type: 'text' },
+            { id: 'cost', label: 'दैनिक लागत', width: 100, type: 'input' },
+        ];
+        const TOTAL_COLUMNS = [
+            { id: 'totalDays', label: 'कुल दिन', width: 90, type: 'calculated', color: '#fef3c7' }, 
+            { id: 'totalAmount', label: 'कुल राशि', width: 110, type: 'calculated', color: '#fef3c7' },
+            { id: 'paidAmount', label: 'भुगतान', width: 90, type: 'calculated', color: '#a7f3d0' }, 
+            { id: 'payAmount', label: 'देय राशि', width: 100, type: 'calculated', color: '#fecaca' }, 
+        ];
+        const DATE_CELL_WIDTH = 40;
+
+        // --- Data Model ---
+        let employees = []; // Loaded from Firestore
+        let sheetConfig = {
+            startDate: '', // YYYY-MM-DD
+            endDate: '',   // YYYY-MM-DD
+            holidays: {}   // { 'YYYY-MM-DD': true }
+        };
+        let sheetHistoryRecords = []; 
+        let dates = []; // Array of Date objects for the selected range
+        let isSheetReady = false;
+
+        // --- Utility Functions ---
+
+        function showCustomMessage(message) {
+            console.log("App Message:", message);
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-red-600 text-white p-3 rounded-lg shadow-xl z-50 transition-opacity duration-300';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.classList.add('opacity-0');
+                notification.addEventListener('transitionend', () => notification.remove());
+            }, 3000);
+        }
+
+        function getDatesInRange(startDate, endDate) {
+            const dateArray = [];
+            let currentDate = new Date(startDate);
+            const stopDate = new Date(endDate);
+            stopDate.setDate(stopDate.getDate() + 1); 
+
+            while (currentDate < stopDate) {
+                dateArray.push(new Date(currentDate));
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            return dateArray;
+        }
+
+        function formatDateKey(date) {
+            if (date instanceof Date) {
+                 const year = date.getFullYear();
+                 const month = String(date.getMonth() + 1).padStart(2, '0');
+                 const day = String(date.getDate()).padStart(2, '0');
+                 return `${year}-${month}-${day}`;
+            }
+            return date;
+        }
+        
+        function formatDisplayDate(dateStr) {
+            // Use 'en-US' locale for consistent date formatting 
+            return new Date(dateStr).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
+
+        function calculateSheet() {
+            employees.forEach(employee => {
+                let presentDays = 0;
+                dates.forEach(date => {
+                    const key = formatDateKey(date);
+                    
+                    if (sheetConfig.holidays[key]) return; 
+
+                    const mark = employee.attendance[key];
+                    if (mark === 'P') {
+                        presentDays += 1;
+                    } else if (mark === 'H') { 
+                        presentDays += 0.5;
+                    } 
+                });
+
+                const totalAmount = presentDays * employee.cost;
+                employee.totalDays = presentDays;
+                employee.totalAmount = totalAmount;
+
+                // Ensure paymentHistory is an array before reducing
+                const totalPaid = Array.isArray(employee.paymentHistory) 
+                    ? employee.paymentHistory.reduce((sum, payment) => sum + payment.amount, 0)
+                    : 0;
+
+                employee.paidAmount = totalPaid; 
+                
+                employee.payAmount = totalAmount - totalPaid;
+            });
+        }
+        
+        function updateReportRangeDisplay() {
+            const startStr = sheetConfig.startDate;
+            const endStr = sheetConfig.endDate;
+            const rangeDisplay = document.getElementById('currentRangeDisplay');
+
+            if (!rangeDisplay) return; // Safety check
+
+            if (startStr && endStr) {
+                const startDisplay = formatDisplayDate(startStr);
+                const endDisplay = formatDisplayDate(endStr);
+                rangeDisplay.textContent = `${startDisplay} to ${endDisplay}`;
+            } else {
+                 rangeDisplay.textContent = `N/A`;
+            }
+        }
+
+        // --- Drawing Functions ---
+        function drawSheet() {
+            const loadingMessage = document.getElementById('loadingMessage');
+            if (!isSheetReady) {
+                if (loadingMessage) { 
+                    loadingMessage.classList.add('hidden');
+                }
+                return;
+            }
+
+            calculateSheet();
+            renderPaymentHistory();
+
+            let fixedWidth = FIXED_COLUMNS.reduce((sum, col) => sum + col.width, 0);
+            let totalWidth = fixedWidth + dates.length * DATE_CELL_WIDTH + TOTAL_COLUMNS.reduce((sum, col) => sum + col.width, 0);
+
+            canvas.width = totalWidth;
+            canvas.height = (employees.length * ROW_HEIGHT) + TOTAL_HEADER_HEIGHT; 
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = FONT;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            let x = 0;
+            let y = 0;
+
+            // --- 1. Draw Headers (Date + Day) ---
+            ctx.fillStyle = HEADER_BG;
+            ctx.fillRect(0, 0, totalWidth, TOTAL_HEADER_HEIGHT);
+            ctx.strokeStyle = '#ccc';
+
+            // Fixed columns header
+            x = 0;
+            FIXED_COLUMNS.forEach(col => {
+                drawCell(x, 0, col.width, TOTAL_HEADER_HEIGHT, col.label, HEADER_TEXT_COLOR, HEADER_BG);
+                x += col.width;
+            });
+
+            // Date columns header
+            dates.forEach((date) => {
+                const key = formatDateKey(date);
+                const dayOfWeek = date.getDay();
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; 
+                const isSystemHoliday = sheetConfig.holidays[key]; 
+                const dayAbbr = DAY_ABBREVIATIONS[dayOfWeek];
+
+                let bgColor = isWeekend ? '#1e293b' : HEADER_BG;
+                if (isSystemHoliday) {
+                    bgColor = SYSTEM_HOLIDAY_COLOR;
+                }
+                
+                const dateMark = isSystemHoliday ? 'X' : date.getDate();
+                const dateTextColor = isSystemHoliday ? '#1f2937' : HEADER_TEXT_COLOR;
+                const dayTextColor = isSystemHoliday ? '#1f2937' : HEADER_TEXT_COLOR;
+                
+                // Draw Date (Top Half, Y=0)
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, 0, DATE_CELL_WIDTH, HEADER_ROW_HEIGHT);
+                ctx.strokeStyle = '#ccc';
+                ctx.strokeRect(x, 0, DATE_CELL_WIDTH, HEADER_ROW_HEIGHT);
+                ctx.fillStyle = dateTextColor;
+                ctx.fillText(dateMark, x + DATE_CELL_WIDTH / 2, HEADER_ROW_HEIGHT / 2);
+
+                // Draw Day (Bottom Half, Y=20)
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, HEADER_ROW_HEIGHT, DATE_CELL_WIDTH, HEADER_ROW_HEIGHT);
+                ctx.strokeStyle = '#ccc';
+                ctx.strokeRect(x, HEADER_ROW_HEIGHT, DATE_CELL_WIDTH, HEADER_ROW_HEIGHT);
+                ctx.fillStyle = dayTextColor;
+                ctx.fillText(dayAbbr, x + DATE_CELL_WIDTH / 2, HEADER_ROW_HEIGHT * 1.5);
+                
+                x += DATE_CELL_WIDTH;
+            });
+
+            // Total columns header
+            TOTAL_COLUMNS.forEach(col => {
+                drawCell(x, 0, col.width, TOTAL_HEADER_HEIGHT, col.label, HEADER_TEXT_COLOR, HEADER_BG);
+                x += col.width;
+            });
+
+            // --- 2. Draw Employee Rows ---
+            employees.forEach((employee, rowIndex) => {
+                y = (rowIndex * ROW_HEIGHT) + TOTAL_HEADER_HEIGHT; 
+                x = 0;
+
+                const rowBg = rowIndex % 2 === 0 ? '#ffffff' : '#f9fafb';
+
+                // Fixed columns data
+                FIXED_COLUMNS.forEach((col) => {
+                    let text;
+                    if (col.id === 'sn') {
+                        text = rowIndex + 1;
+                    } else if (col.id === 'name') {
+                        text = employee.name;
+                        ctx.textAlign = 'left';
+                    } else if (col.id === 'cost') {
+                        text = '₹' + employee.cost.toFixed(0); 
+                    }
+
+                    drawCell(x, y, col.width, ROW_HEIGHT, text, '#333', rowBg, col.id !== 'name' ? 'center' : 'left', col.id === 'name' ? 10 : 0);
+                    x += col.width;
+                    ctx.textAlign = 'center'; 
+                });
+
+                // Attendance date cells
+                dates.forEach((date) => {
+                    const key = formatDateKey(date);
+                    const mark = employee.attendance[key] || '';
+                    const dayOfWeek = date.getDay();
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    const isSystemHoliday = sheetConfig.holidays[key];
+                    
+                    let bgColor = isWeekend ? WEEKEND_COLOR : rowBg;
+                    let displayMark = mark;
+                    let textColor = '#333';
+                    
+                    if (isSystemHoliday) {
+                        bgColor = SYSTEM_HOLIDAY_COLOR;
+                        displayMark = 'X'; 
+                        textColor = '#1f2937';
+                    } else if (mark === 'P') {
+                        bgColor = ACTIVE_COLOR;
+                        textColor = '#065f46';
+                    } else if (mark === 'H') { 
+                        bgColor = HALF_DAY_COLOR;
+                        textColor = '#b45309'; 
+                    } else if (mark === 'A') { 
+                        textColor = '#ef4444'; 
+                    } else if (mark === 'L') { 
+                        bgColor = LEAVE_COLOR;
+                        textColor = '#9d174d'; 
+                    }
+
+                    drawCell(x, y, DATE_CELL_WIDTH, ROW_HEIGHT, displayMark, textColor, bgColor);
+                    x += DATE_CELL_WIDTH;
+                });
+
+                // Calculated total columns data
+                TOTAL_COLUMNS.forEach(col => {
+                    let text;
+                    if (col.id === 'totalDays') text = employee.totalDays.toFixed(1); 
+                    else if (col.id === 'totalAmount') text = '₹' + employee.totalAmount.toFixed(0);
+                    else if (col.id === 'paidAmount') text = '₹' + employee.paidAmount.toFixed(0);
+                    else if (col.id === 'payAmount') text = '₹' + employee.payAmount.toFixed(0);
+
+                    let textColor = '#333';
+                    if (col.id === 'payAmount' && employee.payAmount < 0) {
+                        textColor = '#dc2626'; 
+                    }
+
+                    drawCell(x, y, col.width, ROW_HEIGHT, text, textColor, col.color || rowBg);
+                    x += col.width;
+                });
+            });
+            
+            if (loadingMessage) { 
+                loadingMessage.classList.add('hidden');
+            }
+        }
+
+        // Helper function to draw a cell
+        function drawCell(x, y, w, h, text, textColor, bgColor, textAlign = 'center', padding = 0) {
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(x, y, w, h);
+
+            ctx.strokeStyle = '#ccc';
+            ctx.strokeRect(x, y, w, h);
+
+            ctx.fillStyle = textColor;
+            ctx.textAlign = textAlign;
+            let textX = x + w / 2;
+            if (textAlign === 'left') {
+                textX = x + padding;
+            } else if (textAlign === 'right') {
+                textX = x + w - padding;
+            }
+            
+            ctx.fillText(text, textX, y + h / 2);
+        }
+        
+        // --- FIREBASE DATA MANAGEMENT FUNCTIONS ---
+
+        // Retry helper with exponential backoff
+        async function withRetry(operation, maxRetries = 3, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    return await operation();
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        console.error(`Operation failed after ${maxRetries} attempts:`, error);
+                        showCustomMessage("डेटा सिंक्रनाइज़ेशन विफल रहा। विवरण के लिए कंसोल जांचें।");
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delay * (2 ** i)));
+                }
+            }
+        }
+        
+        async function saveSheetConfig() {
+            if (!firebaseInitialized) return;
+            const configData = {
+                startDate: sheetConfig.startDate,
+                endDate: sheetConfig.endDate,
+                holidays: sheetConfig.holidays,
+            };
+            await withRetry(() => setDoc(doc(db, CONFIG_DOC_PATH), configData));
+        }
+
+        async function saveEmployeeData(employee) {
+            if (!firebaseInitialized || !employee.id) return;
+            // Clean object for storage (Firestore does not like undefined or functions)
+            const dataToSave = {
+                name: employee.name,
+                cost: employee.cost,
+                paymentHistory: employee.paymentHistory,
+                attendance: employee.attendance,
+            };
+            await withRetry(() => setDoc(doc(db, EMPLOYEES_COL_PATH, employee.id), dataToSave));
+        }
+        
+        // Function to save a snapshot of the current sheet calculations as a historical record
+        async function saveHistoricalRecord() {
+            if (!isSheetReady || !firebaseInitialized) return;
+            
+            // 1. Ensure current calculations are done
+            calculateSheet(); 
+            
+            const currentDatesKeys = dates.map(formatDateKey);
+
+            // 2. Create the snapshot record, including detailed employee attendance and cost
+            const record = {
+                startDate: sheetConfig.startDate,
+                endDate: sheetConfig.endDate,
+                createdAt: new Date().toISOString(),
+                holidays: sheetConfig.holidays, 
+                // Save complete employee state relevant for the sheet
+                employeeSnapshot: employees.map(e => ({
+                    id: e.id,
+                    name: e.name,
+                    cost: e.cost, // Daily cost at the time of saving
+                    totalDays: e.totalDays,
+                    totalAmount: e.totalAmount,
+                    payAmount: e.payAmount,
+                    // Save attendance ONLY for the current date range to keep the record clean
+                    attendance: currentDatesKeys.reduce((acc, key) => {
+                        if (e.attendance[key]) {
+                            acc[key] = e.attendance[key];
+                        }
+                        return acc;
+                    }, {})
+                }))
+            };
+
+            // 3. Save to history collection (Firestore auto-generates the ID)
+            await withRetry(() => addDoc(collection(db, SHEET_HISTORY_COL_PATH), record));
+            showCustomMessage(`${sheetConfig.startDate} से ${sheetConfig.endDate} तक का ऐतिहासिक रिकॉर्ड सहेजा गया!`);
+        }
+
+        async function addEmployee() {
+            if (!firebaseInitialized) return;
+            const nameInput = document.getElementById('newEmployeeName');
+            const costInput = document.getElementById('newEmployeeCost'); // NEW
+            
+            const name = nameInput.value.trim();
+            // Parse cost, defaulting to 0 if input is empty or invalid
+            const cost = parseFloat(costInput.value) || 0; 
+
+            if (!name) {
+                showCustomMessage("कृपया कर्मचारी का नाम दर्ज करें।"); 
+                return;
+            }
+            if (cost <= 0) {
+                showCustomMessage("कृपया एक वैध दैनिक लागत दर्ज करें (0 से अधिक होनी चाहिए)।"); 
+                return;
+            }
+
+            const lowerCaseName = name.toLowerCase();
+            if (employees.some(emp => emp.name.toLowerCase() === lowerCaseName)) {
+                 showCustomMessage(`"${name}" नाम का कर्मचारी पहले से मौजूद है।`); 
+                 return;
+            }
+
+            // Create a temporary ID for Firestore to auto-generate the document
+            const tempDocRef = doc(collection(db, EMPLOYEES_COL_PATH));
+            const newEmployeeData = { 
+                name: name, 
+                cost: cost, // UPDATED: Use the input cost
+                paymentHistory: [], 
+                attendance: {} 
+            };
+            
+            await withRetry(() => setDoc(tempDocRef, newEmployeeData));
+            
+            nameInput.value = ''; 
+            // The cost input retains its last entered value or default value='1000'
+            // onSnapshot listener will handle updating 'employees' array and redrawing
+        }
+
+        async function removeEmployee(name) {
+            if (!firebaseInitialized) return;
+            const employee = employees.find(emp => emp.name === name);
+
+            if (employee && employee.id) {
+                await withRetry(() => deleteDoc(doc(db, EMPLOYEES_COL_PATH, employee.id)));
+                // onSnapshot listener will handle redrawing
+            } else {
+                showCustomMessage(`स्थानीय डेटा में "${name}" नाम का कर्मचारी नहीं मिला।`);
+            }
+        }
+
+        // --- Employee Management Functions (UI Layer) ---
+        function updateEmployeeDropdowns() {
+            const removeSelect = document.getElementById('employeeSelectToRemove');
+            const paymentSelect = document.getElementById('paymentEmployeeSelect');
+            const filterSelect = document.getElementById('paymentEmployeeFilter');
+            
+            // Safety check for DOM elements
+            if (!removeSelect || !paymentSelect || !filterSelect) {
+                console.warn("Employee dropdowns not yet loaded. Skipping update.");
+                return;
+            }
+            
+            removeSelect.innerHTML = '<option value="" disabled selected>हटाने के लिए कर्मचारी चुनें</option>';
+            paymentSelect.innerHTML = '<option value="" disabled selected>कर्मचारी चुनें</option>';
+            filterSelect.innerHTML = '<option value="All">सभी कर्मचारी</option>'; 
+
+            employees.forEach(emp => {
+                const removeOption = document.createElement('option');
+                removeOption.value = emp.name;
+                removeOption.textContent = emp.name;
+                removeSelect.appendChild(removeOption);
+
+                const paymentOption = document.createElement('option');
+                paymentOption.value = emp.name;
+                paymentOption.textContent = emp.name;
+                paymentSelect.appendChild(paymentOption);
+                
+                const filterOption = document.createElement('option');
+                filterOption.value = emp.name;
+                filterOption.textContent = emp.name;
+                filterSelect.appendChild(filterOption);
+            });
+        }
+        
+        function removeEmployeeBySelect() {
+            const select = document.getElementById('employeeSelectToRemove');
+            
+            if (!select) return; // Safety check
+
+            const nameToRemove = select.value;
+            
+            if (!nameToRemove) {
+                showCustomMessage("कृपया हटाने के लिए एक कर्मचारी चुनें।");
+                return;
+            }
+
+            removeEmployee(nameToRemove);
+        }
+        
+        // --- PAYMENT HISTORY FUNCTIONS ---
+        async function recordPayment() {
+            if (!firebaseInitialized) return;
+            const name = document.getElementById('paymentEmployeeSelect').value;
+            const date = document.getElementById('paymentDate').value;
+            const amount = parseFloat(document.getElementById('paymentAmount').value);
+            const mode = document.getElementById('paymentMode').value;
+            
+            if (!name) { showCustomMessage("भुगतान दर्ज करने के लिए कृपया एक कर्मचारी चुनें।"); return; }
+            if (!date || !amount || amount <= 0) { showCustomMessage("कृपया भुगतान की तारीख और एक वैध सकारात्मक राशि दर्ज करें।"); return; }
+
+            const employee = employees.find(emp => emp.name === name);
+            if (employee) {
+                // Add the new payment record locally, including a unique timestamp for deletion
+                employee.paymentHistory.push({
+                    id: Date.now() + Math.random(), // Simple local ID for deletion
+                    date: date,
+                    amount: amount,
+                    mode: mode
+                });
+
+                // Save to Firestore
+                await saveEmployeeData(employee);
+
+                document.getElementById('paymentAmount').value = '';
+                document.getElementById('paymentEmployeeSelect').value = ''; 
+                // The onSnapshot listener will trigger drawSheet
+            }
+        }
+        
+        // Function to delete a payment
+        async function deletePayment(employeeName, paymentId) {
+            if (!firebaseInitialized) return;
+
+            const employee = employees.find(emp => emp.name === employeeName);
+            if (!employee) {
+                showCustomMessage(`कर्मचारी ${employeeName} नहीं मिला।`);
+                return;
+            }
+
+            const initialLength = employee.paymentHistory.length;
+            
+            // Filter out the payment with the matching ID
+            employee.paymentHistory = employee.paymentHistory.filter(p => p.id != paymentId);
+
+            if (employee.paymentHistory.length === initialLength) {
+                 showCustomMessage("भुगतान हटाने में असमर्थ।");
+                 return;
+            }
+
+            // Save the updated employee data
+            await saveEmployeeData(employee);
+        }
+
+        function renderPaymentHistory() {
+            const filterSelect = document.getElementById('paymentEmployeeFilter');
+            const table = document.getElementById('paymentHistoryTable');
+            
+            if (!filterSelect || !table) { // Safety check
+                // This warning might fire once on load, but we proceed after auth.
+                return;
+            }
+            
+            const filterName = filterSelect.value;
+            
+            let allPayments = [];
+            employees.forEach(emp => {
+                if (filterName === 'All' || emp.name === filterName) {
+                    // Ensure paymentHistory is an array
+                    const history = Array.isArray(emp.paymentHistory) ? emp.paymentHistory : [];
+                    history.forEach(payment => {
+                        allPayments.push({
+                            employeeName: emp.name,
+                            employeeId: emp.id,
+                            ...payment
+                        });
+                    });
+                }
+            });
+
+            allPayments.sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            let html = `
+                <thead>
+                    <tr>
+                        <th class="py-3 px-6 text-xs font-medium uppercase tracking-wider text-white bg-indigo-600 rounded-tl-lg">कर्मचारी</th>
+                        <th class="py-3 px-6 text-xs font-medium uppercase tracking-wider text-white bg-indigo-600">तारीख</th>
+                        <th class="py-3 px-6 text-xs font-medium uppercase tracking-wider text-white bg-indigo-600 text-right">राशि (₹)</th>
+                        <th class="py-3 px-6 text-xs font-medium uppercase tracking-wider text-white bg-indigo-600">माध्यम</th>
+                        <th class="py-3 px-6 text-xs font-medium uppercase tracking-wider text-white bg-indigo-600 rounded-tr-lg no-print">कार्यवाही</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+            `;
+            
+
+            if (allPayments.length === 0) {
+                 const message = filterName === 'All' ? "कोई भुगतान दर्ज नहीं किया गया है।" : `${filterName} के लिए कोई भुगतान नहीं मिला।`;
+                 html += `<tr><td colspan="5" class="px-6 py-4 whitespace-nowrap text-center text-gray-500 italic">${message}</td></tr>`;
+            } else {
+                allPayments.forEach((p, index) => {
+                    const rowBg = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                    html += `
+                        <tr class="${rowBg}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${p.employeeName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${p.date}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700 text-right">₹${p.amount.toFixed(0)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${p.mode}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm no-print">
+                                <button onclick="deletePayment('${p.employeeName}', ${p.id})" class="text-red-600 hover:text-red-900 font-semibold transition duration-150">
+                                    हटाएँ
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            
+            html += `</tbody>`;
+            table.innerHTML = html;
+        }
+
+        // --- HISTORICAL REPORT FUNCTIONS ---
+        
+        function renderHistoryRecords() {
+            const listContainer = document.getElementById('historyList');
+            const noHistoryMessage = document.getElementById('noHistoryMessage');
+            
+            // Safety check for DOM elements
+            if (!listContainer || !noHistoryMessage) {
+                // This warning might fire once on load, but we proceed after auth.
+                return;
+            }
+            
+            if (sheetHistoryRecords.length === 0) {
+                noHistoryMessage.classList.remove('hidden');
+                listContainer.innerHTML = '';
+                listContainer.appendChild(noHistoryMessage);
+                return;
+            }
+
+            noHistoryMessage.classList.add('hidden');
+            
+            // Sort by creation date (newest first)
+            sheetHistoryRecords.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            
+            listContainer.innerHTML = '';
+            
+            sheetHistoryRecords.forEach(record => {
+                const createdDate = new Date(record.createdAt).toLocaleString('en-IN', {
+                    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+                
+                const startDisplay = formatDisplayDate(record.startDate);
+                const endDisplay = formatDisplayDate(record.endDate);
+
+                const card = document.createElement('div');
+                card.className = 'flex justify-between items-center p-4 bg-gray-50 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-100 transition duration-150';
+                card.innerHTML = `
+                    <div>
+                        <p class="font-bold text-indigo-700">रिपोर्ट: ${startDisplay} से ${endDisplay}</p>
+                        <p class="text-xs text-gray-500">इस तारीख को सहेजा गया: ${createdDate}</p>
+                    </div>
+                    <button onclick="loadHistoricalSheet('${record.id}')" class="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold py-1 px-3 rounded-lg transition duration-150">
+                        शीट देखें/संपादित करें (View/Edit Sheet)
+                    </button>
+                `;
+                listContainer.appendChild(card);
+            });
+        }
+        
+        // Function to load historical sheet data onto the main canvas
+        async function loadHistoricalSheet(recordId) {
+            if (!firebaseInitialized) return;
+            
+            const record = sheetHistoryRecords.find(r => r.id === recordId);
+            if (!record || !record.employeeSnapshot) {
+                showCustomMessage("ऐतिहासिक रिकॉर्ड डेटा अधूरा या गायब है।");
+                return;
+            }
+
+            const { startDate, endDate, employeeSnapshot, holidays } = record;
+            
+            // Step 1: Update the sheet configuration (This will trigger the config listener)
+            sheetConfig.startDate = startDate;
+            sheetConfig.endDate = endDate;
+            sheetConfig.holidays = holidays || {};
+            await saveSheetConfig(); // Save the new configuration
+
+            // Step 2: Update current employees in Firestore with the attendance and cost from the snapshot.
+            const currentEmployeeMap = new Map(employees.map(e => [e.id, e]));
+
+            for (const snapshotEmp of employeeSnapshot) {
+                const currentEmp = currentEmployeeMap.get(snapshotEmp.id);
+                
+                if (currentEmp) {
+                    // Retain current payment history, overwrite cost and attendance marks for the snapshot's employee ID
+                    
+                    // Merge attendance: retain current attendance for dates *outside* the historical range.
+                    const updatedAttendance = { ...currentEmp.attendance }; 
+                    
+                    // Apply the snapshot attendance marks
+                    for (const [dateKey, mark] of Object.entries(snapshotEmp.attendance)) {
+                        updatedAttendance[dateKey] = mark;
+                    }
+
+                    // Save the updated employee record
+                    const dataToSave = {
+                        name: currentEmp.name,
+                        // Use cost from snapshot
+                        cost: snapshotEmp.cost, 
+                        // Retain current payment history
+                        paymentHistory: currentEmp.paymentHistory, 
+                        // Use merged attendance (this will overwrite cost/attendance on current sheet)
+                        attendance: updatedAttendance, 
+                    };
+                    
+                    // Save directly to Firestore using employee ID
+                    const empDocRef = doc(db, EMPLOYEES_COL_PATH, currentEmp.id);
+                    // Use setDoc to overwrite attendance and cost for this employee
+                    await withRetry(() => setDoc(empDocRef, dataToSave));
+                    
+                } else {
+                    console.warn(`Employee ID ${snapshotEmp.id} from historical record not found in current employee list. Skipping attendance update for them.`);
+                }
+            }
+
+            // Step 3: Confirmation message
+            showCustomMessage(`शीट इस सीमा के लिए लोड की गई: ${formatDisplayDate(startDate)} से ${formatDisplayDate(endDate)}। डेटा अब संपादन योग्य है।`);
+            
+            // Drawing is handled by the config and employee listeners.
+        }
+
+        // --- Interaction Functions (Attendance & Config) ---
+        async function initSheet() {
+            if (!firebaseInitialized) {
+                showCustomMessage("डेटाबेस अभी तक शुरू नहीं हुआ है। कृपया एक क्षण प्रतीक्षा करें।");
+                return false;
+            }
+
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            
+            if (!startDateInput || !endDateInput) return false; // Safety check
+
+            const startDateStr = startDateInput.value;
+            const endDateStr = endDateInput.value;
+
+            if (!startDateStr || !endDateStr) {
+                showCustomMessage("कृपया शुरुआत और अंतिम दोनों तारीखें चुनें।");
+                return false;
+            }
+
+            const startDate = new Date(startDateStr);
+            const endDate = new Date(endDateStr);
+
+            if (startDate > endDate) {
+                showCustomMessage("शुरुआत की तारीख अंतिम तारीख के बाद नहीं हो सकती।");
+                return false;
+            }
+            
+            // 1. Update local config and dates array
+            sheetConfig.startDate = startDateStr;
+            sheetConfig.endDate = endDateStr;
+            dates = getDatesInRange(startDateStr, endDateStr);
+            isSheetReady = true;
+
+            // 2. Save the updated config to Firestore
+            await saveSheetConfig();
+            
+            // 3. Update UI display immediately (drawSheet will follow via listener)
+            updateReportRangeDisplay();
+            
+            return true;
+        }
+        
+        // Handler for the main button click
+        async function handleSheetGeneration() {
+            const success = await initSheet();
+            if (success) {
+                // Save the current state as a historical record
+                await saveHistoricalRecord(); 
+                // The drawing and history rendering is handled by onSnapshot listeners
+            }
+        }
+
+        canvas.addEventListener('click', async (event) => {
+            if (!isSheetReady || !firebaseInitialized) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const clickX = (event.clientX - rect.left) * scaleX;
+            const clickY = (event.clientY - rect.top) * scaleY;
+
+            const rowIndex = Math.floor((clickY - TOTAL_HEADER_HEIGHT) / ROW_HEIGHT); 
+
+            let x = 0;
+            let colIndex = -1;
+            let colType = '';
+            let colID = '';
+            
+            const totalFixedCols = FIXED_COLUMNS.length;
+            const totalDateCols = dates.length;
+            
+            // 1. Check Fixed Columns
+            for (let i = 0; i < totalFixedCols; i++) {
+                x += FIXED_COLUMNS[i].width;
+                if (clickX < x) {
+                    colID = FIXED_COLUMNS[i].id;
+                    colType = FIXED_COLUMNS[i].type;
+                    colIndex = i;
+                    break;
+                }
+            }
+
+            // 2. Check Date/Attendance Columns
+            if (colID === '') {
+                for (let i = 0; i < totalDateCols; i++) {
+                    x += DATE_CELL_WIDTH;
+                    if (clickX < x) {
+                        colID = 'date';
+                        colType = 'attendance';
+                        colIndex = i; 
+                        break;
+                    }
+                }
+            }
+            
+            // --- Handle Header Click (System Holiday Toggle) ---
+            if (clickY < TOTAL_HEADER_HEIGHT && colType === 'attendance' && colIndex >= 0) {
+                const dateKey = formatDateKey(dates[colIndex]);
+                
+                if (sheetConfig.holidays[dateKey]) {
+                    delete sheetConfig.holidays[dateKey];
+                } else {
+                    sheetConfig.holidays[dateKey] = true;
+                }
+                
+                await saveSheetConfig(); // Save holiday change
+                return; 
+            }
+
+            if (rowIndex < 0 || rowIndex >= employees.length) return; 
+
+            const employee = employees[rowIndex];
+            
+            if (colType === 'attendance' && colIndex >= 0) {
+                const dateKey = formatDateKey(dates[colIndex]);
+                
+                if (sheetConfig.holidays[dateKey]) return; 
+
+                // Toggle Attendance: '' -> 'P' -> 'H' -> 'A' -> 'L' -> ''
+                const currentMark = employee.attendance[dateKey];
+                
+                let newMark = '';
+                if (currentMark === 'P') newMark = 'H'; 
+                else if (currentMark === 'H') newMark = 'A'; 
+                else if (currentMark === 'A') newMark = 'L'; 
+                else if (currentMark === 'L') newMark = ''; 
+                else newMark = 'P'; 
+                
+                employee.attendance[dateKey] = newMark;
+                
+                // Save attendance change to Firestore
+                await saveEmployeeData(employee);
+
+            } else if (colType === 'input' && colID === 'cost') {
+                showTempInput(rowIndex, colID, rect, scaleX, scaleY);
+            }
+        });
+
+        // --- Temporary Input Handling (Cost Edit) ---
+        function showTempInput(rowIndex, colID, rect, scaleX, scaleY) {
+            const employee = employees[rowIndex];
+
+            let xStart = FIXED_COLUMNS[0].width + FIXED_COLUMNS[1].width;
+            let width = FIXED_COLUMNS[2].width;
+
+            const yStart = (rowIndex * ROW_HEIGHT) + TOTAL_HEADER_HEIGHT;
+            const value = employee.cost;
+            
+            const scaledX = (xStart / scaleX) + rect.left;
+            const scaledY = (yStart / scaleY) + rect.top;
+            const scaledW = (width / scaleX);
+            
+            tempInput.style.left = `${scaledX}px`;
+            tempInput.style.top = `${scaledY}px`;
+            tempInput.style.width = `${scaledW - 2}px`; 
+            tempInput.style.height = `${(ROW_HEIGHT / scaleY) - 2}px`;
+            tempInput.value = value;
+            
+            tempInput.dataset.rowIndex = rowIndex;
+            tempInput.dataset.colId = colID;
+            
+            tempInput.classList.remove('hidden');
+            tempInput.focus();
+        }
+        
+        function handleInputBlur(inputElement) {
+            if (document.activeElement !== inputElement) {
+                 saveTempInput();
+            }
+        }
+        
+        function handleInputKeydown(event, inputElement) {
+            if (event.key === 'Enter') {
+                saveTempInput();
+            }
+        }
+        
+        async function saveTempInput() {
+            if (!firebaseInitialized) return;
+            
+            if (tempInput.classList.contains('hidden')) return; // Check if already hidden
+
+            const rowIndex = parseInt(tempInput.dataset.rowIndex);
+            const colId = tempInput.dataset.colId;
+            const newValue = Math.max(0, parseFloat(tempInput.value) || 0); 
+            
+            if (rowIndex >= 0 && employees[rowIndex]) {
+                if (colId === 'cost') {
+                    employees[rowIndex].cost = newValue;
+                    // Save cost change to Firestore
+                    await saveEmployeeData(employees[rowIndex]);
+                }
+            }
+            
+            tempInput.classList.add('hidden');
+            // Redraw handled by onSnapshot
+        }
+        
+        function printReport() {
+            window.print();
+        }
+
+
+        // --- FIREBASE INITIALIZATION ---
+
+        function setupFirestoreListeners() {
+            // A. Listen for Sheet Configuration (Dates, Holidays)
+            const configDocRef = doc(db, CONFIG_DOC_PATH);
+            onSnapshot(configDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const config = docSnap.data();
+                    sheetConfig.startDate = config.startDate || '';
+                    sheetConfig.endDate = config.endDate || '';
+                    sheetConfig.holidays = config.holidays || {};
+                    
+                    // Update UI inputs from config
+                    const startDateInput = document.getElementById('startDate');
+                    const endDateInput = document.getElementById('endDate');
+                    if (startDateInput) startDateInput.value = sheetConfig.startDate;
+                    if (endDateInput) endDateInput.value = sheetConfig.endDate;
+                    
+                    // Re-generate sheet based on persisted config
+                    if (sheetConfig.startDate && sheetConfig.endDate) {
+                        dates = getDatesInRange(sheetConfig.startDate, sheetConfig.endDate);
+                        isSheetReady = true;
+                        updateReportRangeDisplay();
+                        drawSheet();
+                    }
+                } else {
+                    // Initialize document if it doesn't exist
+                    saveSheetConfig();
+                }
+            }, (error) => {
+                console.error("Error listening to config:", error);
+            });
+
+            // B. Listen for Employee Data
+            const employeesColRef = collection(db, EMPLOYEES_COL_PATH);
+            onSnapshot(employeesColRef, (snapshot) => {
+                const newEmployees = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    // Include Firestore ID for updating/deleting
+                    newEmployees.push({
+                        id: doc.id, 
+                        name: data.name,
+                        cost: data.cost || 0,
+                        paymentHistory: data.paymentHistory || [],
+                        attendance: data.attendance || {}
+                    });
+                });
+                
+                // Sort employees by name for consistent UI display
+                newEmployees.sort((a, b) => a.name.localeCompare(b.name));
+                
+                employees = newEmployees;
+                updateEmployeeDropdowns();
+                drawSheet(); // Redraw whenever employee data changes
+            }, (error) => {
+                console.error("Error listening to employees:", error);
+            });
+            
+            // C. Listen for Historical Report Data
+            const historyColRef = collection(db, SHEET_HISTORY_COL_PATH);
+            onSnapshot(historyColRef, (snapshot) => {
+                const newHistory = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    newHistory.push({
+                        id: doc.id, // Store doc id for potential deletion/retrieval
+                        ...data
+                    });
+                });
+                sheetHistoryRecords = newHistory;
+                renderHistoryRecords(); 
+            }, (error) => {
+                console.error("Error listening to sheet history:", error);
+            });
+        }
+
+        async function initializeFirebase() {
+            if (!firebaseConfig) {
+                console.error("Firebase config is missing.");
+                showCustomMessage("Firebase कॉन्फ़िगरेशन त्रुटि। डेटा सहेजा नहीं जा सकता।");
+                return;
+            }
+            
+            // 1. Init App and Services
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // 2. Auth Listener
+            onAuthStateChanged(auth, async (user) => {
+                if (!user) {
+                    // Sign in if not already signed in
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Authentication failed:", error);
+                    }
+                }
+                
+                if (auth.currentUser) {
+                    userId = auth.currentUser.uid;
+                    firebaseInitialized = true;
+                    // 3. Set up Realtime Listeners once authenticated
+                    setupFirestoreListeners(); 
+                }
+            });
+        }
+        
+        function setDefaultDates() {
+            // Set default date range to current month if config is empty
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            const paymentDateInput = document.getElementById('paymentDate');
+            
+            if (!startDateInput || !endDateInput || !paymentDateInput) return; // Safety check
+
+            if (!startDateInput.value) {
+                const today = new Date();
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+                const format = (date) => {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                };
+
+                startDateInput.value = format(firstDay);
+                endDateInput.value = format(lastDay);
+            }
+            paymentDateInput.value = formatDateKey(new Date());
+        }
+        
+        // --- UPDATED: TAB SWITCHING LOGIC ---
+        function showSection(sectionId) {
+            const sections = ['attendance', 'payment', 'history'];
+            // Select all control elements that belong to the attendance section
+            const attendanceControls = document.querySelectorAll('.attendance-controls'); 
+            
+            sections.forEach(id => {
+                const sectionElement = document.getElementById(id + 'Section');
+                const tabButton = document.getElementById('tab-' + id);
+                
+                if (sectionElement && tabButton) {
+                    if (id === sectionId) {
+                        sectionElement.classList.remove('hidden');
+                        tabButton.classList.add('active');
+                    } else {
+                        sectionElement.classList.add('hidden');
+                        tabButton.classList.remove('active');
+                    }
+                }
+            });
+            
+            // Show/Hide the Attendance-specific controls based on the active tab
+            attendanceControls.forEach(control => {
+                if (sectionId === 'attendance') {
+                    control.classList.remove('hidden');
+                } else {
+                    control.classList.add('hidden');
+                }
+            });
+
+            // Re-draw canvas if switching back to attendance
+            if (sectionId === 'attendance') {
+                drawSheet();
+            }
+        }
+
+        // --- EXPOSE GLOBAL FUNCTIONS FOR HTML EVENT HANDLERS (FIX for ReferenceError) ---
+        window.initSheet = initSheet;
+        window.handleSheetGeneration = handleSheetGeneration; 
+        window.addEmployee = addEmployee;
+        window.removeEmployeeBySelect = removeEmployeeBySelect;
+        window.recordPayment = recordPayment;
+        window.deletePayment = deletePayment; 
+        window.drawSheet = drawSheet;
+        window.printReport = printReport;
+        window.handleInputBlur = handleInputBlur;
+        window.handleInputKeydown = handleInputKeydown;
+        window.loadHistoricalSheet = loadHistoricalSheet; 
+        window.showSection = showSection; 
+        
+
+        window.onload = function() {
+            setDefaultDates();
+            initializeFirebase(); 
+            // Ensure only the default section is visible on load
+            showSection('attendance'); 
+        }
+    </script>
+</body>
+</html>
